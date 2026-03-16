@@ -1,0 +1,10 @@
+name: BluethCore
+version: '${version}'
+main: online.blueth.core.BluethCore
+api-version: '1.20'
+description: Shared core library powering the Blueth plugin ecosystem
+author: LaunchDay Studio
+website: https://blueth.online
+softdepend:
+  - Vault
+  - PlaceholderAPI

@@ -30,6 +30,12 @@ dependencies {
     api("net.kyori:adventure-text-minimessage:4.21.0")
 }
 
+tasks.processResources {
+    filesMatching("plugin.yml") {
+        expand("version" to project.version)
+    }
+}
+
 publishing {
     publications {
         create<MavenPublication>("maven") {

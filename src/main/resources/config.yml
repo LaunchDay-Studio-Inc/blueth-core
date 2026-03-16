@@ -1,0 +1,7 @@
+# Blueth Core Configuration
+
+blueth:
+  # Show Discord invite to players after they've been online for a while
+  promo-enabled: true
+  discord-url: "https://discord.gg/bJDGXc4DvW"
+  promo-delay-minutes: 5
