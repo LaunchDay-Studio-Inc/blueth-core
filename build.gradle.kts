@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "online.blueth"
-version = "0.1.0-SNAPSHOT"
+version = "0.2.0-SNAPSHOT"
 description = "Shared core library for Blueth plugin ecosystem"
 
 java {
@@ -23,6 +23,7 @@ repositories {
 
 dependencies {
     compileOnly("io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT")
+    compileOnly("com.google.code.gson:gson:2.11.0")
     compileOnly("com.github.MilkBowl:VaultAPI:1.7.1")
     compileOnly("me.clip:placeholderapi:2.11.6")
     api("net.kyori:adventure-api:4.21.0")

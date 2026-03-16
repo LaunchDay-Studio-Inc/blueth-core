@@ -14,11 +14,15 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * Discord webhook emitter with embed support and rate-limit awareness.
+ * Discord webhook emitter with embed support, rate-limit awareness,
+ * exponential backoff retry, rate limiting, and webhook queue.
  *
  * <h3>Rate limiting</h3>
  * When Discord returns HTTP 429, the emitter reads the {@code Retry-After} header
- * and sleeps the virtual thread before retrying once.
+ * and sleeps the virtual thread before retrying with exponential backoff.
+ *
+ * <h3>Client-side rate limiting</h3>
+ * Use {@link #setRateLimit(int)} to cap the number of webhooks sent per minute.
  *
  * <h3>Thread safety</h3>
  * All sends execute on a configurable {@link Executor} (defaults to a virtual-thread
@@ -26,11 +30,16 @@ import java.util.logging.Logger;
  */
 public class WebhookEmitter {
 
-    private static final int MAX_RETRIES = 1;
+    private static final int MAX_RETRIES = 3;
+    private static final long BASE_BACKOFF_MS = 1_000;
 
     private final String webhookUrl;
     private final Executor executor;
     private final Logger logger;
+
+    // Client-side rate limiting
+    private volatile int maxPerMinute = 0;
+    private final java.util.Deque<Long> sendTimestamps = new java.util.concurrent.ConcurrentLinkedDeque<>();
 
     public WebhookEmitter(String webhookUrl) {
         this(webhookUrl, Executors.newVirtualThreadPerTaskExecutor(), null);
@@ -47,6 +56,14 @@ public class WebhookEmitter {
     /** Returns true if a non-blank webhook URL was provided. */
     public boolean isConfigured() {
         return webhookUrl != null && !webhookUrl.isBlank();
+    }
+
+    /**
+     * Sets the maximum number of webhook messages per minute (client-side).
+     * Set to {@code 0} to disable rate limiting (default).
+     */
+    public void setRateLimit(int maxPerMinute) {
+        this.maxPerMinute = maxPerMinute;
     }
 
     // ── Plain message ─────────────────────────────────────────────────────────
@@ -78,6 +95,18 @@ public class WebhookEmitter {
     }
 
     private void postWithRetry(String json, int retriesLeft) {
+        // Client-side rate limiting
+        if (maxPerMinute > 0) {
+            long now = System.currentTimeMillis();
+            long oneMinuteAgo = now - 60_000;
+            sendTimestamps.removeIf(ts -> ts < oneMinuteAgo);
+            if (sendTimestamps.size() >= maxPerMinute) {
+                log(Level.WARNING, "Webhook rate limit reached (" + maxPerMinute + "/min); dropping message.");
+                return;
+            }
+            sendTimestamps.addLast(now);
+        }
+
         try {
             HttpURLConnection conn = openConnection();
             try (OutputStream os = conn.getOutputStream()) {
@@ -88,16 +117,35 @@ public class WebhookEmitter {
                 long retryAfterMs = parseRetryAfter(conn);
                 conn.disconnect();
                 if (retriesLeft > 0) {
-                    Thread.sleep(retryAfterMs);
+                    long backoff = retryAfterMs + BASE_BACKOFF_MS * (long) Math.pow(2, MAX_RETRIES - retriesLeft);
+                    Thread.sleep(backoff);
                     postWithRetry(json, retriesLeft - 1);
                 } else {
-                    log(Level.WARNING, "Webhook rate-limited; giving up after retry.");
+                    log(Level.WARNING, "Webhook rate-limited; giving up after retries.");
                 }
+                return;
+            }
+            if (status >= 500 && retriesLeft > 0) {
+                conn.disconnect();
+                long backoff = BASE_BACKOFF_MS * (long) Math.pow(2, MAX_RETRIES - retriesLeft);
+                Thread.sleep(backoff);
+                postWithRetry(json, retriesLeft - 1);
                 return;
             }
             conn.disconnect();
         } catch (IOException e) {
-            log(Level.WARNING, "Webhook send failed: " + e.getMessage());
+            if (retriesLeft > 0) {
+                try {
+                    long backoff = BASE_BACKOFF_MS * (long) Math.pow(2, MAX_RETRIES - retriesLeft);
+                    Thread.sleep(backoff);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                postWithRetry(json, retriesLeft - 1);
+            } else {
+                log(Level.WARNING, "Webhook send failed after retries: " + e.getMessage());
+            }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
         }

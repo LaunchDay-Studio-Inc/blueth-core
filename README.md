@@ -3,16 +3,152 @@
 ![Java](https://img.shields.io/badge/Java-21-orange?logo=openjdk)
 ![Paper](https://img.shields.io/badge/Paper-1.21%2B-blue?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTEyIDJMMyA3bDkgNSA5LTV6Ii8+PC9zdmc+)
 ![License](https://img.shields.io/badge/license-All%20Rights%20Reserved-red)
-![JitPack](https://img.shields.io/badge/JitPack-0.1.0-brightgreen)
+![JitPack](https://img.shields.io/badge/JitPack-0.2.0-brightgreen)
 
 **Blueth Core** is the shared utility library powering the Blueth plugin ecosystem for
-Paper 1.21+ servers. It provides production-ready building blocks — GUI management,
-config versioning, scheduling, persistence, webhooks, and more — so every downstream
-plugin starts from a solid foundation.
+Paper 1.21+ servers. It provides production-ready building blocks — command framework,
+GUI management, i18n, player data, config versioning, scheduling, persistence, webhooks,
+and more — so every downstream plugin starts from a solid foundation.
+
+---
+
+## Why Blueth Core over EssentialsX?
+
+| Feature | Blueth Core | EssentialsX |
+|---------|-------------|-------------|
+| Folia Support | ✅ Native | ❌ None |
+| MiniMessage | ✅ First-class | ⚠️ Legacy ChatColor |
+| GUI Framework | ✅ Built-in + pagination | ❌ None |
+| Command Framework | ✅ Annotation-based | ❌ Manual registration |
+| Config Migration | ✅ Versioned steps | ⚠️ Shades Configurate |
+| i18n | ✅ MiniMessage + reload | ⚠️ Legacy properties |
+| Player Data | ✅ Async + atomic | ⚠️ Synchronous YAML |
+| Event Bus | ✅ Lightweight internal | ❌ None |
+| Time/Number/Location Utils | ✅ Clean, static | ⚠️ 600+ lines of legacy |
+| Jar Size | ~60KB | ~4.7MB |
+| Classes | ~25 focused | 362 monolithic |
 
 ---
 
 ## Modules
+
+### `command` — Annotation-Based Command Framework
+
+Register commands with annotations — no plugin.yml entries needed. Automatic argument
+parsing, tab completion, permission checks, cooldowns, and subcommand support.
+
+```java
+@BluethCommand(name = "kit", permission = "myplugin.kit", usage = "/kit <name>",
+               cooldown = "kit", cooldownSeconds = 300)
+public void onKit(Player player, @Arg("name") String kitName) {
+    // give kit
+}
+
+@Subcommand(parent = "kit", name = "list")
+public void onKitList(Player player) {
+    // list kits
+}
+
+// Registration (in onEnable):
+CommandManager mgr = new CommandManager(plugin, scheduler, cooldownManager);
+mgr.register(new MyCommands());
+```
+
+---
+
+### `i18n` — Message Manager
+
+Full i18n system with MiniMessage, `%placeholder%` and `<tag>` support, auto-prefix,
+titles, and ActionBar helpers. Reload-safe.
+
+```java
+MessageManager messages = new MessageManager(plugin, "messages.yml");
+messages.setPrefix("<gray>[<gold>MyPlugin</gold>]</gray> ");
+
+messages.sendMessage(player, "welcome", "player", player.getName());
+messages.sendTitle(player, "level-up", "level", "10");
+messages.sendActionBar(player, "xp-gained", "amount", "50");
+```
+
+---
+
+### `data` — Player Data Store
+
+Typed per-player data with async I/O, dirty-flag batch saves, and atomic file writes.
+
+```java
+PlayerDataStore store = new PlayerDataStore(plugin, "playerdata");
+store.set(uuid, "kills", 42);
+int kills = store.get(uuid, "kills", Integer.class);
+
+Map<UUID, Integer> allKills = store.getAll("kills", Integer.class);
+store.saveAllAsync();
+```
+
+---
+
+### `menu` — Menu Manager
+
+Centralized GUI lifecycle with exploit protection (drag, shift-click, number keys),
+confirmation dialogs, animated slots, and click sounds.
+
+```java
+MenuManager menus = new MenuManager(plugin, scheduler);
+menus.setClickSound(Sound.UI_BUTTON_CLICK, 0.5f, 1.0f);
+
+menus.confirm(player, "Delete this kit?",
+    p -> deleteKit(p),
+    p -> p.sendMessage("Cancelled"));
+```
+
+---
+
+### `event` — Internal Event Bus
+
+Lightweight pub/sub for inter-module communication with priority ordering,
+async listeners, cancellable events, and one-shot listeners.
+
+```java
+EventBus bus = new EventBus();
+bus.on(ContractCompleteEvent.class, event -> { ... });
+bus.once(RewardEvent.class, event -> { ... });
+bus.fire(new ContractCompleteEvent(player, contract));
+```
+
+---
+
+### `util` — Version, Time, Number, Location Utilities
+
+**VersionUtil** — cached server version detection:
+```java
+VersionUtil.isAtLeast(1, 21)   // true if 1.21+
+VersionUtil.isFolia()          // true if Folia
+VersionUtil.isPaper()          // true if Paper
+```
+
+**TimeUtil** — human-friendly duration parsing and formatting:
+```java
+Duration d = TimeUtil.parse("2h30m");
+String s = TimeUtil.format(d);        // "2 hours 30 minutes"
+String r = TimeUtil.formatRelative(instant); // "3 hours ago"
+```
+
+**NumberUtil** — formatting, compact notation, safe parsing:
+```java
+NumberUtil.format(1234567.89)  // "1,234,567.89"
+NumberUtil.compact(1500000)    // "1.5M"
+NumberUtil.parseOr("abc", 0)  // 0
+```
+
+**LocationUtil** — serialization, safety checks, distance:
+```java
+String s = LocationUtil.serialize(location);      // "world,100,64,200,0.0,0.0"
+Location loc = LocationUtil.deserialize(s);
+boolean safe = LocationUtil.isSafe(location);
+Location nearby = LocationUtil.findSafeNearby(location, 5);
+```
+
+---
 
 ### `config` — Versioned YAML Config
 
@@ -117,25 +253,31 @@ scheduler.cancelAll();
 
 ### `persistence` — Thread-Safe Flat File Store
 
-YAML-backed key/value store with async saves and thread-safe I/O.
+YAML/JSON-backed key/value store with async saves, atomic writes (tmp → rename),
+and thread-safe I/O.
 
 ```java
 FlatFileStore store = new FlatFileStore(plugin, "playerdata");
+FlatFileStore jsonStore = new FlatFileStore(plugin, "data", FlatFileStore.Backend.JSON);
+
 YamlConfiguration data = store.load(player.getUniqueId().toString());
 data.set("coins", 500);
 store.saveAsync(player.getUniqueId().toString(), data);
 
 List<String> allKeys = store.loadAll();
+Map<String, YamlConfiguration> allEntries = store.loadAllEntries();
 ```
 
 ---
 
 ### `webhook` — Discord Webhook Emitter
 
-Async Discord webhook client with embed support and automatic 429 rate-limit handling.
+Async Discord webhook client with embed support, automatic 429 rate-limit handling,
+exponential backoff retry, and client-side rate limiting.
 
 ```java
 WebhookEmitter emitter = new WebhookEmitter(config.getString("webhook-url", ""));
+emitter.setRateLimit(30); // max 30 messages per minute
 
 emitter.sendEmbed(WebhookEmitter.Embed.builder()
     .title("Player Joined")
@@ -220,7 +362,7 @@ repositories {
 }
 
 dependencies {
-    compileOnly("com.github.LaunchDayStudio:blueth-core:0.1.0")
+    compileOnly("com.github.LaunchDayStudio:blueth-core:0.2.0")
 }
 ```
 
@@ -240,7 +382,7 @@ repositories {
 }
 
 dependencies {
-    compileOnly("online.blueth:blueth-core:0.1.0-SNAPSHOT")
+    compileOnly("online.blueth:blueth-core:0.2.0-SNAPSHOT")
 }
 ```
 

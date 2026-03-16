@@ -35,6 +35,7 @@ import java.util.regex.Pattern;
 public class UpdateChecker {
 
     private static final Pattern SEMVER = Pattern.compile("(\\d+\\.\\d+\\.\\d+)");
+    private static final String SUPPORT_URL = "https://discord.gg/bJDGXc4DvW";
 
     private final JavaPlugin plugin;
     private final String currentVersion;
@@ -59,13 +60,13 @@ public class UpdateChecker {
                 String response = fetch(checkUrl);
                 String latest   = extractVersion(response);
                 if (latest == null) {
-                    return new UpdateResult(false, currentVersion, currentVersion, "Could not parse version from response");
+                    return new UpdateResult(false, currentVersion, currentVersion, "Could not parse version from response", SUPPORT_URL);
                 }
                 boolean updateAvailable = isNewer(latest, currentVersion);
-                return new UpdateResult(updateAvailable, latest, currentVersion, null);
+                return new UpdateResult(updateAvailable, latest, currentVersion, null, SUPPORT_URL);
             } catch (IOException e) {
                 plugin.getLogger().log(Level.WARNING, "UpdateChecker failed: " + e.getMessage());
-                return new UpdateResult(false, currentVersion, currentVersion, e.getMessage());
+                return new UpdateResult(false, currentVersion, currentVersion, e.getMessage(), SUPPORT_URL);
             }
         });
     }
@@ -132,11 +133,13 @@ public class UpdateChecker {
      * @param latestVersion   the version string retrieved from the remote endpoint
      * @param currentVersion  the version string from the plugin's plugin.yml
      * @param errorMessage    non-null if an error prevented the check from completing
+     * @param supportUrl      Discord support channel link
      */
     public record UpdateResult(
             boolean updateAvailable,
             String latestVersion,
             String currentVersion,
-            String errorMessage
+            String errorMessage,
+            String supportUrl
     ) {}
 }

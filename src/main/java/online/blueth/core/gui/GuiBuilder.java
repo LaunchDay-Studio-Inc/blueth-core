@@ -96,6 +96,33 @@ public class GuiBuilder implements InventoryHolder, Listener {
         return this;
     }
 
+    /**
+     * Fills slots according to a pattern string. Each character in the pattern
+     * maps to an item via the provided mappings. The pattern is read left-to-right,
+     * row-by-row (9 chars per row).
+     *
+     * <h3>Example</h3>
+     * <pre>{@code
+     * builder.pattern("XOXOXOXOX", 'X', fillerItem, 'O', actionItem);
+     * }</pre>
+     *
+     * @param pattern  the slot layout (one char per slot, row-by-row)
+     * @param mappings alternating char-ItemStack pairs
+     */
+    public GuiBuilder pattern(String pattern, Object... mappings) {
+        Map<Character, ItemStack> map = new HashMap<>();
+        for (int i = 0; i + 1 < mappings.length; i += 2) {
+            if (mappings[i] instanceof Character c && mappings[i + 1] instanceof ItemStack item) {
+                map.put(c, item);
+            }
+        }
+        for (int i = 0; i < pattern.length() && i < inventory.getSize(); i++) {
+            ItemStack item = map.get(pattern.charAt(i));
+            if (item != null) inventory.setItem(i, item);
+        }
+        return this;
+    }
+
     /** Clears all items and click actions from the inventory. */
     public GuiBuilder clear() {
         inventory.clear();
